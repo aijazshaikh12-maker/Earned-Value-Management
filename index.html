@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Performance Dashboard</title>
+    
+    <!-- PWA Links -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4e5f70">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        kubra: { green: '#91bd00', cyan: '#0296d4', dark: '#4e5f70', orange: '#f47521', white: '#ffffff' }
+                    },
+                    screens: { '2xl': '1536px', '3xl': '1920px', '4xl': '2560px', '5xl': '3840px' }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .card-shadow { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        .transition-all { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        @keyframes fadeOut { 0% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; pointer-events: none; } }
+        .toast-notification { animation: fadeOut 4s forwards; }
+        
+        .tooltip-container { position: relative; display: inline-block; }
+        .tooltip-text {
+            visibility: hidden; width: 200px; background-color: #4e5f70; color: #fff; text-align: center;
+            border-radius: 6px; padding: 8px; position: absolute; z-index: 1; bottom: 125%; left: 50%;
+            margin-left: -100px; opacity: 0; transition: opacity 0.3s; font-size: 0.75rem; font-weight: normal;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .tooltip-container:hover .tooltip-text { visibility: visible; opacity: 1; }
+    </style>
+</head>
+<body id="pageBody" class="bg-slate-100 text-slate-800 transition-colors duration-500">
+
+    <!-- Notification Toast -->
+    <div id="escToast" class="fixed top-10 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl z-50 hidden flex items-center gap-3">
+        <i class="fas fa-camera text-[#91bd00]"></i><span>Clean View Active. Press <strong class="text-[#91bd00]">ESC</strong> to return.</span>
+    </div>
+
+    <!-- Sidebar / Navigation (Will be hidden in Shared View) -->
+    <div class="flex min-h-screen flex-col md:flex-row">
+        <aside id="sidebarPanel" class="w-full md:w-64 bg-[#4e5f70] text-white flex-shrink-0 transition-all duration-500 overflow-hidden">
+            <div class="p-6 border-b border-slate-500">
+                <h1 class="text-2xl font-bold text-[#91bd00]"><i class="fas fa-chart-line mr-2"></i>EVM Exec</h1>
+                <p class="text-xs text-slate-300 mt-1">Performance Analytics</p>
+            </div>
+            <nav class="p-4 space-y-2">
+                <a href="#" class="block py-2.5 px-4 bg-slate-700/50 rounded hover:bg-slate-600 transition-colors text-[#91bd00] font-semibold"><i class="fas fa-tachometer-alt mr-2"></i> Dashboard</a>
+                <div class="mt-8 px-4">
+                    <p class="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Control Panel</p>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-xs text-slate-300">Company Name</label>
+                            <input type="text" id="inputCompanyName" placeholder="Enter Company Name" oninput="updateCompanyName()" class="w-full bg-slate-600 border border-slate-500 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-[#91bd00] placeholder-slate-400">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-300">Total Budget (Hrs)</label>
+                            <input type="number" step="0.001" id="inputTotalHrs" value="2224.125" oninput="autoCalcRemaining()" class="w-full bg-slate-600 border border-slate-500 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-[#91bd00]">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-300">Hourly Rate ($)</label>
+                            <input type="number" id="inputRate" value="200" oninput="calculateEVM()" class="w-full bg-slate-600 border border-slate-500 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-[#91bd00]">
+                        </div>
+                        <div>
+                            <label class="text-xs text-[#91bd00] font-bold">Actual Hours Spent</label>
+                            <input type="number" step="0.001" id="inputActualHrs" value="865.125" oninput="autoCalcRemaining()" class="w-full bg-slate-600 border-[#91bd00] border rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-[#91bd00] ring-1 ring-[#91bd00]/50">
+                        </div>
+                        
+                        <!-- Auto-calculated Remaining Hours -->
+                        <div>
+                            <label class="text-xs text-[#0296d4] font-bold">Planned Remaining (Hrs)</label>
+                            <input type="number" step="0.01" id="inputRemainingHrs" readonly class="w-full bg-slate-600/50 border border-slate-500 rounded px-2 py-1 text-sm text-gray-300 cursor-not-allowed focus:outline-none">
+                        </div>
+
+                        <!-- Manual Percentage Inputs -->
+                        <div class="pt-2 border-t border-slate-500/30">
+                            <label class="text-xs text-[#91bd00] font-bold">Actual Progress (%)</label>
+                            <input type="number" step="0.01" id="inputActualPercent" value="100" oninput="handleManualPercent()" class="w-full bg-slate-600 border-[#91bd00] border rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-[#91bd00] ring-1 ring-[#91bd00]/50">
+                        </div>
+                        <div>
+                            <label class="text-xs text-[#0296d4] font-bold">Planned Progress (%)</label>
+                            <input type="number" step="0.01" id="inputPlannedPercent" value="100" oninput="handleManualPercent()" class="w-full bg-slate-600 border-[#0296d4] border rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-[#0296d4] ring-1 ring-[#0296d4]/50">
+                        </div>
+                        
+                        <div class="flex items-center py-2">
+                            <input type="checkbox" id="chkComplete" checked onchange="toggleComplete()" class="w-4 h-4 text-[#91bd00] bg-slate-600 border-slate-500 rounded focus:ring-[#91bd00] focus:ring-2">
+                            <label for="chkComplete" class="ml-2 text-sm font-bold text-white">Mark Project Complete</label>
+                        </div>
+                        <button onclick="calculateEVM()" class="w-full bg-[#91bd00] hover:bg-[#7da300] text-white py-2 rounded text-sm font-bold transition-colors mt-2 shadow-md"><i class="fas fa-sync-alt mr-1"></i> Update Metrics</button>
+                    </div>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-6 md:p-8 lg:p-10 overflow-y-auto transition-all relative">
+            <!-- Header -->
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8" id="topHeader">
+                <div class="flex flex-col md:flex-row items-start md:items-center gap-6">
+                    <div class="relative">
+                        <img src="gigapixel-KUBRA-Logo.png" alt="Company Logo" class="h-20 w-auto object-contain" onerror="this.style.display='none'; document.getElementById('logoFallback').classList.remove('hidden');">
+                        <div id="logoFallback" class="hidden h-20 flex items-center justify-center bg-white/50 rounded-lg px-4 border-2 border-dashed border-slate-300">
+                            <span class="text-3xl font-bold tracking-tighter"><span class="text-[#4e5f70]">KUB</span><span class="text-[#91bd00]">RA</span></span>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 id="dispCompanyName" class="text-sm font-bold text-[#91bd00] uppercase tracking-wider mb-1">YOUR COMPANY</h3>
+                        <h2 class="text-3xl font-bold text-[#4e5f70] tracking-tight">Project Performance Overview</h2>
+                        <p class="text-slate-500 mt-1">Real-time Earned Value Management Analysis</p>
+                    </div>
+                </div>
+                
+                <div id="actionButtons" class="mt-4 md:mt-0 flex space-x-3">
+                    <!-- NEW: Share via Email Button -->
+                    <button id="btnShareEmail" onclick="shareViaEmail()" class="bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm text-slate-500 hover:text-[#0296d4] hover:border-[#0296d4] transition-colors font-semibold text-sm">
+                        <i class="fas fa-envelope mr-2"></i> Share Report
+                    </button>
+
+                    <button id="btnInstallPWA" class="hidden bg-[#91bd00] text-white px-4 py-2 rounded-lg shadow-sm hover:bg-[#7da300] transition-colors font-semibold text-sm animate-bounce">
+                        <i class="fas fa-download mr-2"></i> Install App
+                    </button>
+                    <button onclick="toggleCleanMode()" class="bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm text-slate-500 hover:text-[#0296d4] hover:border-[#0296d4] transition-colors font-semibold text-sm"><i class="fas fa-camera mr-2"></i> Clean View (8K)</button>
+                    <button id="btnFullScreen" onclick="toggleFullScreen()" class="bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm text-slate-500 hover:text-[#91bd00] hover:border-[#91bd00] transition-colors font-semibold text-sm"><i class="fas fa-expand mr-2"></i> Full Screen</button>
+                    <div class="bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm flex items-center">
+                        <div class="w-3 h-3 rounded-full bg-[#91bd00] mr-2 animate-pulse"></div>
+                        <span id="statusBadge" class="text-sm font-semibold text-slate-700">Status: In Progress</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Section -->
+            <div class="grid grid-cols-1 xl:grid-cols-4 gap-6 mb-8">
+                <div class="xl:col-span-1 bg-[#4e5f70] rounded-xl card-shadow text-white p-6 flex flex-col justify-center h-full">
+                    <h3 id="summaryTitle" class="text-lg font-bold mb-3 text-[#91bd00]">Executive Summary</h3>
+                    <p id="narrativeText" class="text-slate-300 leading-relaxed text-sm">Loading analysis...</p>
+                    <div class="mt-6 pt-4 border-t border-slate-500">
+                        <div class="flex items-center justify-between text-xs text-slate-400"><span>Generated by EVM System</span><span id="lastUpdated">Just now</span></div>
+                    </div>
+                </div>
+
+                <div class="xl:col-span-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="bg-white p-6 rounded-xl card-shadow border-l-4 border-[#4e5f70] relative overflow-hidden group">
+                        <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><i class="fas fa-file-invoice-dollar text-6xl text-[#4e5f70]"></i></div>
+                        <p class="text-sm font-semibold text-slate-500 uppercase">Total Project Value</p>
+                        <h3 class="text-3xl font-bold text-[#4e5f70] mt-1" id="dispBACCard">--</h3>
+                        <p class="text-xs mt-2 text-[#4e5f70] font-semibold">Budget at Completion</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl card-shadow border-l-4 border-[#f47521]">
+                        <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><i class="fas fa-receipt text-6xl text-[#f47521]"></i></div>
+                        <p class="text-sm font-semibold text-slate-500 uppercase" id="labelEAC">Est. At Completion</p>
+                        <h3 class="text-3xl font-bold text-[#4e5f70] mt-1" id="dispEAC">--</h3>
+                        <p class="text-xs mt-2 text-[#f47521] font-semibold">Final Spend (AC)</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl card-shadow border-l-4 border-[#91bd00] relative overflow-hidden group">
+                        <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><i class="fas fa-sack-dollar text-6xl text-[#91bd00]"></i></div>
+                        <p class="text-sm font-semibold text-slate-500 uppercase" id="labelReserve">Budget Surplus</p>
+                        <h3 class="text-3xl font-bold text-[#4e5f70] mt-1" id="dispReserve">--</h3>
+                        <p class="text-xs mt-2 font-bold flex items-center" id="dispReserveBox"><i class="fas fa-check-circle mr-1"></i> <span id="dispReserveText">Total Savings</span></p>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl card-shadow border-l-4 border-[#91bd00] relative overflow-hidden group">
+                        <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><i class="fas fa-clock text-6xl text-[#91bd00]"></i></div>
+                        <div class="flex justify-between items-start">
+                            <p class="text-sm font-semibold text-slate-500 uppercase">Schedule Efficiency</p>
+                            <div class="tooltip-container"><i class="fas fa-info-circle text-slate-400 hover:text-[#0296d4] cursor-help"></i><span class="tooltip-text">SPI > 1.0 indicates project is ahead of schedule.</span></div>
+                        </div>
+                        <h3 class="text-3xl font-bold text-[#4e5f70] mt-1" id="dispSPI">--</h3>
+                        <p class="text-xs mt-2 font-bold flex items-center" id="dispSPIBox"><i class="fas fa-arrow-up mr-1"></i> <span id="dispSVText">--</span></p>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl card-shadow border-l-4 border-[#0296d4] relative overflow-hidden group">
+                        <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><i class="fas fa-coins text-6xl text-[#0296d4]"></i></div>
+                        <div class="flex justify-between items-start">
+                            <p class="text-sm font-semibold text-slate-500 uppercase">Cost Efficiency</p>
+                            <div class="tooltip-container"><i class="fas fa-info-circle text-slate-400 hover:text-[#0296d4] cursor-help"></i><span class="tooltip-text">CPI > 1.0 means you are under budget.</span></div>
+                        </div>
+                        <h3 class="text-3xl font-bold text-[#4e5f70] mt-1" id="dispCPI">--</h3>
+                        <p class="text-xs mt-2 font-bold flex items-center" id="dispCPIBox"><i class="fas fa-check mr-1"></i> <span id="dispCVText">--</span></p>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl card-shadow border-l-4 border-[#4e5f70]">
+                         <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><i class="fas fa-chart-bar text-6xl text-[#4e5f70]"></i></div>
+                        <p class="text-sm font-semibold text-slate-500 uppercase">Schedule Variance</p>
+                        <h3 class="text-3xl font-bold text-[#4e5f70] mt-1" id="dispSVTime">--</h3>
+                        <p class="text-xs mt-2 text-slate-400">Dollar Value: <span id="dispSVDollar" class="font-bold">--</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white p-6 rounded-xl card-shadow col-span-2">
+                    <h3 class="text-lg font-bold text-[#4e5f70] mb-4">Value Analysis (PV vs EV vs AC)</h3>
+                    <div class="relative h-72 w-full"><canvas id="evmChart"></canvas></div>
+                </div>
+                <div class="bg-white p-6 rounded-xl card-shadow flex flex-col items-center justify-center">
+                    <h3 class="text-lg font-bold text-[#4e5f70] mb-2">Efficiency Indexes</h3>
+                    <div class="relative h-64 w-full"><canvas id="efficiencyChart"></canvas></div>
+                    <div class="mt-4 text-center text-xs text-slate-500"><span class="block">Baseline = 1.0 (Plan)</span></div>
+                </div>
+            </div>
+
+            <!-- Bottom Details -->
+            <div class="mb-8">
+                 <div class="bg-white rounded-xl card-shadow overflow-hidden">
+                    <div class="px-6 py-4 border-b border-slate-100 bg-slate-50">
+                        <h3 class="font-bold text-[#4e5f70]">Financial & Schedule Metrics</h3>
+                    </div>
+                    <div class="p-6">
+                        <table class="w-full text-sm text-left text-slate-600">
+                            <tbody>
+                                <tr class="border-b border-slate-100"><td class="py-3 font-medium">Budget at Completion (BAC)</td><td class="py-3 text-right font-bold text-[#4e5f70]" id="tblBAC">$123,000</td></tr>
+                                <tr class="border-b border-slate-100"><td class="py-3 font-medium">Planned Value (PV)</td><td class="py-3 text-right font-bold text-[#0296d4]" id="tblPV">$24,000</td></tr>
+                                <tr class="border-b border-slate-100"><td class="py-3 font-medium">Earned Value (EV)</td><td class="py-3 text-right font-bold text-[#91bd00]" id="tblEV">$24,200</td></tr>
+                                <tr class="border-b border-slate-100"><td class="py-3 font-medium">Actual Cost (AC)</td><td class="py-3 text-right font-bold text-[#f47521]" id="tblAC">$24,200</td></tr>
+                                <tr><td class="py-3 font-medium">To Complete Performance Index (TCPI)</td><td class="py-3 text-right font-bold text-[#4e5f70]" id="tblTCPI">1.00</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // PWA Installation Logic
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            const btn = document.getElementById('btnInstallPWA');
+            btn.classList.remove('hidden');
+            
+            btn.addEventListener('click', () => {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') { console.log('User accepted the install prompt'); }
+                    deferredPrompt = null;
+                    btn.classList.add('hidden');
+                });
+            });
+        });
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').then((reg) => console.log('Service Worker Registered')).catch((err) => console.log('Service Worker Failed'));
+            });
+        }
+
+        const COLORS = { green: '#91bd00', cyan: '#0296d4', dark: '#4e5f70', orange: '#f47521', white: '#ffffff', slate: '#cbd5e1' };
+        let evmChartInstance = null;
+        let efficiencyChartInstance = null;
+        let isCleanMode = false;
+        let isTheaterMode = false;
+
+        // SHARE FEATURE IMPLEMENTATION
+        function shareViaEmail() {
+            // 1. Gather all inputs
+            const company = encodeURIComponent(document.getElementById('inputCompanyName').value);
+            const total = document.getElementById('inputTotalHrs').value;
+            const rate = document.getElementById('inputRate').value;
+            const actualHrs = document.getElementById('inputActualHrs').value;
+            const actualPct = document.getElementById('inputActualPercent').value;
+            const plannedPct = document.getElementById('inputPlannedPercent').value;
+            const isComplete = document.getElementById('chkComplete').checked;
+
+            // 2. Determine Base URL - LOGIC FIX FOR LOCAL FILES
+            let baseUrl = window.location.href.split('?')[0];
+            
+            if (window.location.protocol === 'file:') {
+                // Check if user previously saved a hosted URL
+                const storedUrl = localStorage.getItem('evm_public_url');
+                if (storedUrl) {
+                    baseUrl = storedUrl;
+                } else {
+                    // Prompt user for hosted URL if running locally
+                    const userUrl = prompt(
+                        "⚠️ Hosting Required for Sharing ⚠️\n\n" +
+                        "You are running this file locally (file://). For others to view the link you share, this dashboard file must be hosted on a website.\n\n" +
+                        "If you have uploaded this file to a website (e.g., SharePoint, GitHub Pages), please paste that PUBLIC URL here:\n" +
+                        "(Leave empty to create a local-only link for yourself)",
+                        ""
+                    );
+                    
+                    if (userUrl && userUrl.trim().startsWith('http')) {
+                        baseUrl = userUrl.trim();
+                        localStorage.setItem('evm_public_url', baseUrl); // Save for next time
+                    }
+                }
+            }
+
+            // 3. Construct Query String
+            const shareUrl = `${baseUrl}?comp=${company}&tot=${total}&rate=${rate}&actH=${actualHrs}&actP=${actualPct}&plnP=${plannedPct}&done=${isComplete}`;
+
+            // 4. Copy to Clipboard (using textarea hack for robustness in iframes)
+            const tempInput = document.createElement("textarea");
+            tempInput.value = shareUrl;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand("copy");
+            document.body.removeChild(tempInput);
+
+            // 5. Feedback (Toast)
+            const toast = document.getElementById('escToast');
+            const originalText = toast.innerHTML;
+            
+            // Update toast to show success
+            toast.innerHTML = '<i class="fas fa-check-circle text-[#91bd00]"></i><span>Link Copied! Opening Email...</span>';
+            toast.classList.remove('hidden');
+            toast.classList.add('toast-notification');
+
+            // 6. Open Email Client (After small delay to show toast)
+            const subject = "Project Performance Report: " + decodeURIComponent(company);
+            const body = `Here is the latest EVM Project Performance Report for ${decodeURIComponent(company)}.\n\nClick the link below to view the interactive dashboard:\n${shareUrl}`;
+            
+            setTimeout(() => {
+                window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                
+                // Restore Toast after 3 seconds
+                setTimeout(() => {
+                    toast.classList.add('hidden');
+                    toast.classList.remove('toast-notification');
+                    toast.innerHTML = originalText;
+                }, 3000);
+            }, 1000);
+        }
+
+        // LOAD SHARED VIEW LOGIC
+        function loadFromParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            
+            // Check if essential params exist
+            if (urlParams.has('tot') && urlParams.has('rate')) {
+                // Populate Inputs
+                if(urlParams.has('comp')) document.getElementById('inputCompanyName').value = urlParams.get('comp');
+                document.getElementById('inputTotalHrs').value = urlParams.get('tot');
+                document.getElementById('inputRate').value = urlParams.get('rate');
+                document.getElementById('inputActualHrs').value = urlParams.get('actH');
+                document.getElementById('inputActualPercent').value = urlParams.get('actP');
+                document.getElementById('inputPlannedPercent').value = urlParams.get('plnP');
+                document.getElementById('chkComplete').checked = (urlParams.get('done') === 'true');
+
+                // ENFORCE VIEW ONLY MODE (Hide Sidebar/Controls)
+                document.getElementById('sidebarPanel').style.display = 'none';
+                
+                // Hide specific buttons unsuitable for a viewer
+                document.getElementById('btnShareEmail').style.display = 'none'; // Don't share a share
+                document.getElementById('btnInstallPWA').style.display = 'none';
+                document.getElementById('actionButtons').classList.add('hidden'); // Hide top right buttons for cleaner look
+                
+                console.log("Loaded from Shared Link - View Only Mode Active");
+                
+                return true; // Data loaded
+            }
+            return false;
+        }
+
+        function toggleCleanMode() {
+            isCleanMode = !isCleanMode;
+            const sidebar = document.getElementById('sidebarPanel');
+            const body = document.getElementById('pageBody');
+            const actionButtons = document.getElementById('actionButtons');
+            const toast = document.getElementById('escToast');
+
+            if (isCleanMode) {
+                sidebar.style.marginLeft = '-16rem'; sidebar.style.display = 'none';
+                actionButtons.style.display = 'none'; body.classList.remove('bg-slate-100');
+                body.classList.add('bg-transparent'); toast.classList.remove('hidden');
+                toast.classList.add('toast-notification'); document.addEventListener('keydown', handleEscKey);
+            } else {
+                sidebar.style.marginLeft = '0'; sidebar.style.display = 'block';
+                actionButtons.style.display = 'flex'; body.classList.add('bg-slate-100');
+                body.classList.remove('bg-transparent'); toast.classList.add('hidden');
+                toast.classList.remove('toast-notification'); document.removeEventListener('keydown', handleEscKey);
+            }
+            setTimeout(() => { if(evmChartInstance) evmChartInstance.resize(); if(efficiencyChartInstance) efficiencyChartInstance.resize(); }, 100);
+        }
+
+        function handleEscKey(e) { if (e.key === "Escape" && isCleanMode) toggleCleanMode(); }
+
+        function toggleFullScreen() {
+            const elem = document.documentElement;
+            const btn = document.getElementById('btnFullScreen');
+            const isInNativeFS = document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement;
+
+            if (!isInNativeFS && !isTheaterMode) {
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen().then(() => { btn.innerHTML = '<i class="fas fa-compress mr-2"></i> Exit Full Screen'; }).catch(err => { enterTheaterMode(); });
+                } else { enterTheaterMode(); }
+            } else {
+                if (isInNativeFS) { if (document.exitFullscreen) document.exitFullscreen(); btn.innerHTML = '<i class="fas fa-expand mr-2"></i> Full Screen'; } else if (isTheaterMode) { exitTheaterMode(); }
+            }
+        }
+
+        function enterTheaterMode() { isTheaterMode = true; document.getElementById('sidebarPanel').style.display = 'none'; const btn = document.getElementById('btnFullScreen'); btn.innerHTML = '<i class="fas fa-compress mr-2"></i> Exit Full Screen'; btn.classList.remove('text-slate-500'); btn.classList.add('text-[#91bd00]'); }
+        function exitTheaterMode() { isTheaterMode = false; document.getElementById('sidebarPanel').style.display = 'block'; const btn = document.getElementById('btnFullScreen'); btn.innerHTML = '<i class="fas fa-expand mr-2"></i> Full Screen'; btn.classList.add('text-slate-500'); btn.classList.remove('text-[#91bd00]'); }
+
+        const fmtMoney = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num);
+
+        window.onload = function() { 
+            // Check for shared URL params FIRST
+            const isShared = loadFromParams();
+            
+            if (!isShared) {
+                // If not shared, load defaults or saved state
+                autoCalcRemaining(); 
+                updateCompanyName(); 
+            } else {
+                // If shared, trigger calculation with the loaded params
+                updateCompanyName();
+                calculateEVM();
+            }
+        };
+        
+        function updateCompanyName() {
+            const inputName = document.getElementById('inputCompanyName').value;
+            const displayTitle = document.getElementById('dispCompanyName');
+            if (inputName && inputName.trim() !== "") { displayTitle.innerText = inputName; displayTitle.style.display = 'block'; } 
+            else { displayTitle.innerText = "YOUR COMPANY"; }
+        }
+        
+        // AUTO CALCULATE REMAINING HOURS FROM ACTUALS
+        function autoCalcRemaining() {
+            const total = parseFloat(document.getElementById('inputTotalHrs').value) || 0;
+            const actual = parseFloat(document.getElementById('inputActualHrs').value) || 0;
+            const remaining = total - actual;
+            document.getElementById('inputRemainingHrs').value = remaining.toFixed(2);
+            calculateEVM();
+        }
+        
+        function handleManualPercent() {
+            const chk = document.getElementById('chkComplete');
+            if (chk.checked) {
+                chk.checked = false;
+            }
+            calculateEVM();
+        }
+        
+        function toggleComplete() {
+            const isComplete = document.getElementById('chkComplete').checked;
+            if (isComplete) {
+                document.getElementById('inputActualPercent').value = 100;
+                document.getElementById('inputPlannedPercent').value = 100;
+                // document.getElementById('inputRemainingHrs').value = 0; 
+            }
+            calculateEVM();
+        }
+
+        function calculateEVM() {
+            const totalHrs = parseFloat(document.getElementById('inputTotalHrs').value);
+            const rate = parseFloat(document.getElementById('inputRate').value);
+            const actualHrs = parseFloat(document.getElementById('inputActualHrs').value);
+            
+            // MANUAL PERCENTAGE INPUTS
+            const actualPct = parseFloat(document.getElementById('inputActualPercent').value) || 0;
+            const plannedPct = parseFloat(document.getElementById('inputPlannedPercent').value) || 0;
+            
+            const isComplete = document.getElementById('chkComplete').checked;
+
+            const BAC = totalHrs * rate;
+            
+            // LOGIC FIX:
+            // Planned Progress (Where we SHOULD be) drives Planned Value (PV)
+            const PV = BAC * (plannedPct / 100);
+            
+            // Actual Progress (Where we ARE) drives Earned Value (EV)
+            const EV = BAC * (actualPct / 100);
+            
+            const AC = actualHrs * rate;
+            
+            const SV_cost = EV - PV;
+            const SV_time = SV_cost / rate; // Approximate time variance based on cost
+
+            const SPI = PV === 0 ? 1 : EV / PV;
+            const CV = EV - AC;
+            const CPI = AC === 0 ? 1 : EV / AC;
+            
+            const EAC = (isComplete) ? AC : (CPI === 0 ? BAC : BAC / CPI);
+            const VAC = BAC - EAC;
+            let TCPI = 0;
+            if (isComplete) { TCPI = 0; } else if((BAC - AC) !== 0) { TCPI = (BAC - EV) / (BAC - AC); }
+
+            document.getElementById('statusBadge').innerText = isComplete ? "Status: Complete" : "Status: In Progress";
+            document.getElementById('labelEAC').innerText = isComplete ? "Final Actual Cost" : "Est. At Completion";
+            document.getElementById('dispBACCard').innerText = fmtMoney(BAC);
+            document.getElementById('dispSPI').innerText = SPI.toFixed(2);
+            document.getElementById('dispSPIBox').className = `text-xs mt-2 font-bold flex items-center ${SPI >= 1 ? 'text-[#91bd00]' : 'text-[#f47521]'}`;
+            document.getElementById('dispSVText').innerText = SPI >= 1 ? "Ahead of Schedule" : "Behind Schedule";
+            document.getElementById('dispCPI').innerText = CPI.toFixed(2);
+            document.getElementById('dispCPIBox').className = `text-xs mt-2 font-bold flex items-center ${CPI >= 1 ? 'text-[#0296d4]' : 'text-[#f47521]'}`;
+            document.getElementById('dispCVText').innerText = CPI >= 1 ? "Under/On Budget" : "Over Budget";
+            
+            const svTimeText = SV_time > 0 ? `+${SV_time.toFixed(1)}` : SV_time.toFixed(1);
+            document.getElementById('dispSVTime').innerText = `${svTimeText} Hrs`;
+            document.getElementById('dispSVTime').className = `text-3xl font-bold mt-1 ${SV_time >= 0 ? 'text-[#91bd00]' : 'text-[#f47521]'}`;
+            document.getElementById('dispSVDollar').innerText = `${SV_cost >= 0 ? '+' : ''}${fmtMoney(SV_cost)}`;
+            document.getElementById('dispSVDollar').className = `font-bold ${SV_cost >= 0 ? 'text-[#91bd00]' : 'text-[#f47521]'}`;
+            document.getElementById('dispEAC').innerText = fmtMoney(EAC);
+            document.getElementById('dispReserve').innerText = fmtMoney(VAC);
+            document.getElementById('dispReserve').className = `text-3xl font-bold mt-1 ${VAC >= 0 ? 'text-[#91bd00]' : 'text-[#f47521]'}`;
+            document.getElementById('dispReserveBox').className = `text-xs mt-2 font-bold flex items-center ${VAC >= 0 ? 'text-[#91bd00]' : 'text-[#f47521]'}`;
+            
+            if (isComplete) {
+                document.getElementById('labelReserve').innerText = "Final Budget Surplus";
+                document.getElementById('dispReserveText').innerText = "Realized Savings";
+            } else {
+                document.getElementById('labelReserve').innerText = "Projected Surplus";
+                document.getElementById('dispReserveText').innerText = VAC >= 0 ? "Under Budget" : "Over Budget";
+            }
+
+            document.getElementById('tblBAC').innerText = fmtMoney(BAC);
+            document.getElementById('tblPV').innerText = fmtMoney(PV);
+            document.getElementById('tblEV').innerText = fmtMoney(EV);
+            document.getElementById('tblAC').innerText = fmtMoney(AC);
+            document.getElementById('tblTCPI').innerText = TCPI.toFixed(2);
+
+            let narrative;
+            const summaryTitle = document.getElementById('summaryTitle');
+
+            if (isComplete) {
+                summaryTitle.innerText = "Project Completion Summary";
+                const spiPercent = Math.abs((SPI - 1) * 100).toFixed(0);
+                const workDirection = SPI >= 1 ? 'more' : 'less';
+                const scheduleStatus = SPI >= 1 ? 'ahead of' : 'behind';
+                narrative = `
+                    <strong class="text-[#91bd00]">Successfully Completed</strong><br/>
+                    The project has been successfully completed. Final actuals are <strong>${fmtMoney(AC)}</strong> against a total approved project value of <strong>${fmtMoney(BAC)}</strong>, resulting in realized reserve / savings of <strong>${fmtMoney(VAC)}</strong>.<br/><br/>
+                    The Cost Performance Index (CPI) is <strong>${CPI.toFixed(2)}</strong>, indicating that for every dollar spent, the project delivered ${CPI.toFixed(2)} dollars of value, reflecting strong cost efficiency and budget stewardship. The Schedule Performance Index (SPI) is <strong>${SPI.toFixed(2)}</strong>, which means the project delivered ${spiPercent} percent ${workDirection} work than planned for the time elapsed, indicating performance ${scheduleStatus} the baseline schedule in earned value terms.
+                `;
+            } else {
+                summaryTitle.innerText = "Midstream Project Metrics";
+                const scheduleText = SPI >= 1 ? "ahead of" : "behind";
+                
+                // TCPI Logic Explanation
+                let tcpiExplanation = "";
+                if (TCPI > 1.0) {
+                    tcpiExplanation = `The <strong>To Complete Performance Index (TCPI)</strong> is <strong>${TCPI.toFixed(2)}</strong>. This implies that for the remainder of the project, the team must generate <strong>$${TCPI.toFixed(2)}</strong> of value for every dollar spent to stay within the original budget, requiring stricter cost control.`;
+                } else {
+                    tcpiExplanation = `The <strong>To Complete Performance Index (TCPI)</strong> is <strong>${TCPI.toFixed(2)}</strong>. This implies a healthy status where the team only needs to generate <strong>$${TCPI.toFixed(2)}</strong> of value for every dollar spent to complete the project within the original budget.`;
+                }
+
+                narrative = `
+                    <strong class="text-[#0296d4]">Ongoing Performance Analysis</strong><br/>
+                    The project is currently tracking <strong>${scheduleText} schedule</strong> (SPI: ${SPI.toFixed(2)}) 
+                    and running <strong>${CPI >= 1 ? 'efficiently' : 'inefficiently'}</strong> against the budget (CPI: ${CPI.toFixed(2)}). 
+                    <br/><br/>
+                    With a Schedule Variance of ${svTimeText} hours, the team has ${SV_time >= 0 ? 'gained' : 'lost'} time against the baseline. 
+                    ${VAC === 0 ? 'The project is projected to land exactly on budget.' : `We anticipate a final Reserve (Variance) of <strong class="${VAC>=0?'text-[#91bd00]':'text-[#f47521]'}">${fmtMoney(VAC)}</strong>.`}
+                    <br/><br/>
+                    ${tcpiExplanation}
+                `;
+            }
+            document.getElementById('narrativeText').innerHTML = narrative;
+            updateCharts(PV, EV, AC, SPI, CPI, BAC, EAC);
+        }
+
+        function updateCharts(PV, EV, AC, SPI, CPI, BAC, EAC) {
+            const ctxEVM = document.getElementById('evmChart').getContext('2d');
+            const ctxEff = document.getElementById('efficiencyChart').getContext('2d');
+            if(evmChartInstance) evmChartInstance.destroy();
+            if(efficiencyChartInstance) efficiencyChartInstance.destroy();
+            Chart.defaults.devicePixelRatio = window.devicePixelRatio || 2; 
+
+            evmChartInstance = new Chart(ctxEVM, {
+                plugins: [ChartDataLabels],
+                type: 'bar',
+                data: {
+                    labels: ['Planned (PV)', 'Earned (EV)', 'Actual (AC)', 'Budget (BAC)', 'Final (EAC)'],
+                    datasets: [{
+                        label: 'Project Financials',
+                        data: [PV, EV, AC, BAC, EAC],
+                        backgroundColor: [COLORS.cyan, COLORS.green, COLORS.orange, COLORS.dark, COLORS.dark],
+                        borderColor: [COLORS.cyan, COLORS.green, COLORS.orange, COLORS.dark, COLORS.dark],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, grid: { color: '#f3f4f6' } }, x: { grid: { display: false } } },
+                    plugins: { 
+                        legend: { display: false },
+                        datalabels: {
+                            color: '#ffffff', anchor: 'center', align: 'center',
+                            formatter: function(value) { return fmtMoney(value); },
+                            font: { weight: 'bold', size: 11 }
+                        }
+                    }
+                }
+            });
+
+            efficiencyChartInstance = new Chart(ctxEff, {
+                type: 'bar',
+                data: {
+                    labels: ['Schedule (SPI)', 'Cost (CPI)'],
+                    datasets: [{
+                        label: 'Index Value', data: [SPI, CPI],
+                        backgroundColor: [SPI >= 1 ? COLORS.green : COLORS.orange, CPI >= 1 ? COLORS.green : COLORS.orange],
+                        borderWidth: 0, barPercentage: 0.6
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    scales: { x: { beginAtZero: true, grid: { color: '#f3f4f6' }, title: { display: true, text: 'Index Value (1.0 = Baseline)' } }, y: { grid: { display: false } } },
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { afterBody: function(context) { const val = context[0].raw; const label = context[0].label; let text = ''; if (label.includes('CPI')) { if (val > 1) { text = `Efficient: Delivering $${val.toFixed(2)} value per $1 spent.`; } else if (val < 1) { text = `Inefficient: Delivering only $${val.toFixed(2)} value per $1 spent.`; } else { text = 'Exactly on budget ($1 value per $1 spent).'; } } else if (label.includes('SPI')) { const pct = Math.abs((val - 1) * 100).toFixed(0); if (val > 1) { text = `Fast: Operating ${pct}% faster than planned.`; } else if (val < 1) { text = `Slow: Operating ${pct}% slower than planned.`; } else { text = 'Exactly on schedule.'; } } return text; } } } }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
